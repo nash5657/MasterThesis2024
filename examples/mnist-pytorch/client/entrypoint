@@ -73,7 +73,7 @@ def train(in_model_path , out_model_path , data_path=None):
     #output_dir = f'./dialogue-summary-training-{str(int(time.time()))}'
 
     lora_config = LoraConfig(
-        r=4, #As bigger the R bigger the parameters to train.
+        r=1, #As bigger the R bigger the parameters to train.
         lora_alpha=1, # a scaling factor that adjusts the magnitude of the weight matrix. Usually set to 1
         target_modules=["query_key_value"], #You can obtain a list of target modules in the URL above.
         lora_dropout=0.05, #Helps to avoid Overfitting.
@@ -91,7 +91,7 @@ def train(in_model_path , out_model_path , data_path=None):
         output_dir=output_directory,
         auto_find_batch_size=True, # Find a correct bvatch size that fits the size of Data.
         learning_rate= 3e-2, # Higher learning rate than full fine-tuning.
-        num_train_epochs=10,
+        num_train_epochs=1,
         # save_strategy="epoch",  # Saves the model at the end of each epoch
         # save_total_limit=1,  # Only keep the 3 most recent checkpoints
         # load_best_model_at_end=True,  # Load the best model at the end of training
@@ -112,7 +112,10 @@ def train(in_model_path , out_model_path , data_path=None):
     # Metadata needed for aggregation server side
     metadata = {
         # num_examples are mandatory
-         'num_examples': len(train_sample)
+         'num_examples': len(train_sample),
+         'batch_size': 10,
+         'epochs': 1,
+         'lr': 0.01
         #'num_examples': len(1)   
     }
 
