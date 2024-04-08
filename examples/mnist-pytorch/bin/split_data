@@ -35,7 +35,7 @@ def splitset(dataset, parts):
 #         result.append(dataset[i * local_n: (i + 1) * local_n])
 #     return result
 
-def split(out_dir='data', n_splits=4):
+def split(out_dir='data', n_splits=2):
     # Load the dataset
     dataset = "fka/awesome-chatgpt-prompts"
     # Create the Dataset to create prompts.
