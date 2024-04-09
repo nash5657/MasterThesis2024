@@ -1,0 +1,136 @@
+#!./.mnist-pytorch/bin/python
+import collections
+import math
+import os
+
+import docker
+import fire
+import torch
+
+from datasets import load_dataset
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GenerationConfig, TrainingArguments, Trainer, AutoModelForCausalLM
+import time
+import evaluate
+import pandas as pd
+import numpy as np
+
+import peft
+from peft import LoraConfig, get_peft_model
+
+import transformers
+
+
+from fedn.utils.helpers.helpers import get_helper, save_metadata, save_metrics
+
+HELPER_MODULE = 'numpyhelper'
+helper = get_helper(HELPER_MODULE)
+
+def load_model():
+    model_name = "bigscience/bloomz-560m"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    original_model = AutoModelForCausalLM.from_pretrained(model_name)
+    return original_model, tokenizer
+
+def load_data():
+    #load the tokenizer
+    tokenizer = load_model()[1] 
+    # Load the dataset
+    dataset = "fka/awesome-chatgpt-prompts"
+
+    #Create the Dataset to create prompts.
+    data = load_dataset(dataset)
+    data = data.map(lambda samples: tokenizer(samples["prompt"]), batched=True)
+    train_sample = data["train"].select(range(50))
+
+    train_sample = train_sample.remove_columns('act')
+    return train_sample
+
+def save_parameters(model, out_path):
+    """ Save model paramters to file.
+
+    :param model: The model to serialize.
+    :type model: torch.nn.Module
+    :param out_path: The path to save to.
+    :type out_path: str
+    """
+    parameters_np = [val.cpu().numpy() for _, val in model.state_dict().items()]
+    helper.save(parameters_np, out_path)
+
+def init_seed(out_path='seed.npz'):
+    """ Initialize seed model and save it to file.
+
+    :param out_path: The path to save the seed model to.
+    :type out_path: str
+    """
+    # Init and save
+    model = load_model()[0]
+    save_parameters(model, out_path)
+
+
+def train(in_model_path , out_model_path , data_path=None):
+
+    # Train
+    #output_dir = f'./dialogue-summary-training-{str(int(time.time()))}'
+
+    lora_config = LoraConfig(
+        r=1, #As bigger the R bigger the parameters to train.
+        lora_alpha=1, # a scaling factor that adjusts the magnitude of the weight matrix. Usually set to 1
+        target_modules=["query_key_value"], #You can obtain a list of target modules in the URL above.
+        lora_dropout=0.05, #Helps to avoid Overfitting.
+        bias="lora_only", # this specifies if the bias parameter should be trained.
+        task_type="CAUSAL_LM"
+    )
+
+    peft_model = get_peft_model(load_model()[0], lora_config)
+
+    working_dir = './'
+    output_directory = os.path.join(working_dir, "peft_lab_outputs_final")
+
+
+    training_args = TrainingArguments(
+        output_dir=output_directory,
+        auto_find_batch_size=True, # Find a correct bvatch size that fits the size of Data.
+        learning_rate= 3e-2, # Higher learning rate than full fine-tuning.
+        num_train_epochs=1,
+        # save_strategy="epoch",  # Saves the model at the end of each epoch
+        # save_total_limit=1,  # Only keep the 3 most recent checkpoints
+        # load_best_model_at_end=True,  # Load the best model at the end of training
+        # evaluation_strategy="epoch",  # Perform evaluation at the end of each epoch
+        # metric_for_best_model="loss",  # Use loss to determine the best model
+        #  # use_cpu=True
+    )
+    train_sample = load_data()
+    trainer = Trainer(
+        model=peft_model,
+        args=training_args,
+        train_dataset=train_sample,
+        data_collator=transformers.DataCollatorForLanguageModeling(load_model()[1], mlm=False)
+    )
+
+    trainer.train()
+
+    # Metadata needed for aggregation server side
+    metadata = {
+        # num_examples are mandatory
+         'num_examples': len(train_sample),
+         'batch_size': 10,
+         'epochs': 1,
+         'lr': 0.01
+        #'num_examples': len(1)   
+    }
+
+    # Save JSON metadata file (mandatory)
+    save_metadata(metadata, out_model_path)
+
+    # print("Training finished")
+    # trainer.save_model(output_directory)
+    # print("hugging face Model saved")
+    save_parameters(trainer.model, out_model_path)
+    #print("fedn Model saved")
+
+
+if __name__ == '__main__':
+    fire.Fire({
+        'init_seed': init_seed,
+        'train': train,
+    })

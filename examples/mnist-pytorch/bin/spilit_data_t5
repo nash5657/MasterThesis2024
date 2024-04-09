@@ -1,0 +1,64 @@
+#!./.mnist-pytorch/bin/python
+import os
+from math import floor
+import torch
+import fire
+# Assuming `load_dataset` and `tokenizer` are defined or imported earlier in your code
+from datasets import load_dataset
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GenerationConfig, TrainingArguments, Trainer, AutoModelForCausalLM
+
+
+
+model_name='google/flan-t5-base'
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+def splitset(dataset, parts):
+    n = len(dataset)  # Total number of items in the dataset
+    base_size = n // parts  # Minimum number of items per part
+    remainder = n % parts  # Remaining items to distribute
+
+    result = []
+    start_idx = 0
+    for i in range(parts):
+        # Calculate the end index for this part, adding an extra item if there's remainder
+        end_idx = start_idx + base_size + (1 if i < remainder else 0)
+        result.append(dataset[start_idx:end_idx])
+        start_idx = end_idx  # Update start index for the next part
+
+    return result
+
+
+def tokenize_function(example):
+    start_prompt = 'Summarize the following conversation.\n\n'
+    end_prompt = '\n\nSummary: '
+    prompt = [start_prompt + dialogue + end_prompt for dialogue in example["dialogue"]]
+    example['input_ids'] = tokenizer(prompt, padding="max_length", truncation=True, return_tensors="pt").input_ids
+    example['labels'] = tokenizer(example["summary"], padding="max_length", truncation=True, return_tensors="pt").input_ids
+    
+    return example
+def split(out_dir='data', n_splits=2):
+    # Load the dataset
+    dataset = "knkarthick/dialogsum"
+    # Create the Dataset to create prompts.
+    data = load_dataset(dataset)
+    tokenized_datasets = data.map(tokenize_function, batched=True)
+    tokenized_datasets = tokenized_datasets.remove_columns(['id', 'topic', 'dialogue', 'summary',])
+    
+
+    # Split the dataset
+    data_splits = splitset(tokenized_datasets['train'], n_splits)
+
+    # Make dir
+    if not os.path.exists(f'{out_dir}/clients'):
+        os.makedirs(f'{out_dir}/clients')
+
+    # Make splits and save them
+    for i in range(n_splits):
+        subdir = f'{out_dir}/clients/{str(i+1)}'
+        if not os.path.exists(subdir):
+            os.makedirs(subdir)
+        # Assuming the data_splits are in a format that can be directly saved with torch.save
+        torch.save(data_splits[i], f'{subdir}/dataset.pt')
+
+if __name__ == '__main__':
+    fire.Fire(split)
