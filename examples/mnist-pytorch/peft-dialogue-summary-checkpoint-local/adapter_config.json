@@ -1,5 +1,5 @@
 {
-  "base_model_name_or_path": "google/flan-t5-base",
+  "base_model_name_or_path": "/Users/nash/Downloads/Models/Instruct_Model/flan-dialogue-summary-checkpoint",
   "bias": "none",
   "fan_in_fan_out": false,
   "inference_mode": true,
