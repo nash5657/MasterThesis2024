@@ -65,15 +65,15 @@ def save_parameters(model, out_path):
     helper.save(parameters_np, out_path)
 
 
-def compile_model():
-    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
+# def compile_model():
+#     peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+#     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
 
-    peft_model = PeftModel.from_pretrained(peft_model_base, 
-                                        './peft-dialogue-summary-checkpoint-local/', 
-                                        torch_dtype=torch.bfloat16,
-                                        is_trainable=False)
-    return peft_model, tokenizer
+#     peft_model = PeftModel.from_pretrained(peft_model_base, 
+#                                         './peft-dialogue-summary-checkpoint-local', 
+#                                         torch_dtype=torch.bfloat16,
+#                                         is_trainable=False)
+#     return peft_model, tokenizer
 
 def load_parameters(model_path):
     """ Load model parameters from file and populate model.
@@ -84,7 +84,11 @@ def load_parameters(model_path):
     :rtype: torch.nn.Module
     """
     parameters_np = helper.load(model_path)
-    model = compile_model()[0]
+    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+    model = PeftModel.from_pretrained(peft_model_base, 
+                                        './peft-dialogue-summary-checkpoint-local', 
+                                         torch_dtype=torch.bfloat16,
+                                       is_trainable=False)
     params_dict = zip(model.state_dict().keys(), parameters_np)
     state_dict = collections.OrderedDict({key: torch.tensor(x) for key, x in params_dict})
     model.load_state_dict(state_dict, strict=True)
@@ -159,7 +163,7 @@ def train(in_model_path , out_model_path , data_path=None):
     save_parameters(trainer.model, out_model_path)
     #print("fedn Model saved")
 
-def validate(in_model_path, out_json_path, data_path=None):
+def validate(in_model_path  , out_json_path  , data_path=None):
     """ Validate model.
 
     :param in_model_path: The path to the input model.
@@ -169,9 +173,11 @@ def validate(in_model_path, out_json_path, data_path=None):
     :param data_path: The path to the data file.
     :type data_path: str
     """
-    tokenizer = load_model()[1]
-    original_model = load_model()[0]
-    peft_model = compile_model()[0] 
+    model_name='google/flan-t5-base'
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    #tokenizer = load_model()[1]
+    #original_model = load_model()[0]
+    fedn_model = load_parameters(in_model_path)
 
     # Load data
     huggingface_dataset_name = "knkarthick/dialogsum"
@@ -181,53 +187,44 @@ def validate(in_model_path, out_json_path, data_path=None):
     dialogues = dataset['test'][0:10]['dialogue']
     human_baseline_summaries = dataset['test'][0:10]['summary']
 
-    original_model_summaries = []
-    peft_model_summaries = []
+    #original_model_summaries = []
+    fedn_model_summaries = []
 
     for idx, dialogue in enumerate(dialogues):
-        prompt = f"""
-    Summarize the following conversation.
-
-    {dialogue}
-
-    Summary: """
+        prompt = f""" Summarize the following conversation. {dialogue} Summary: """
         
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
 
-        human_baseline_text_output = human_baseline_summaries[idx]
+        # human_baseline_text_output = human_baseline_summaries[idx]
         
-        original_model_outputs = original_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
-        original_model_text_output = tokenizer.decode(original_model_outputs[0], skip_special_tokens=True)
+        # original_model_outputs = original_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
+        # original_model_text_output = tokenizer.decode(original_model_outputs[0], skip_special_tokens=True)
 
-        peft_model_outputs = peft_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
-        peft_model_text_output = tokenizer.decode(peft_model_outputs[0], skip_special_tokens=True)
+        fedn_model_outputs = fedn_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
+        fedn_model_text_output = tokenizer.decode(fedn_model_outputs[0], skip_special_tokens=True)
 
-        original_model_summaries.append(original_model_text_output)
-        peft_model_summaries.append(peft_model_text_output)
+        #original_model_summaries.append(original_model_text_output)
+        fedn_model_summaries.append(fedn_model_text_output)
 
    
-    # Load model
-    model = load_parameters(in_model_path)
+   
     
 
     # Evaluate
-    criterion = torch.nn.NLLLoss()
-    with torch.no_grad():
-        train_out = model(x_train)
-        training_loss = criterion(train_out, y_train)
-        training_accuracy = torch.sum(torch.argmax(
-            train_out, dim=1) == y_train) / len(train_out)
-        test_out = model(x_test)
-        test_loss = criterion(test_out, y_test)
-        test_accuracy = torch.sum(torch.argmax(
-            test_out, dim=1) == y_test) / len(test_out)
+    rouge = evaluate.load('rouge')
+    fedn_model_results = rouge.compute(
+        predictions=fedn_model_summaries,
+        references=human_baseline_summaries[0:len(fedn_model_summaries)],
+        use_aggregator=True,
+        use_stemmer=True,
+    )
 
     # JSON schema
     report = {
-        "training_loss": training_loss.item(),
-        "training_accuracy": training_accuracy.item(),
-        "test_loss": test_loss.item(),
-        "test_accuracy": test_accuracy.item(),
+        "rouge1": fedn_model_results["rouge1"],
+        "rouge2": fedn_model_results["rouge2"],
+        "rougeL": fedn_model_results["rougeL"],
+        "rougeLsum": fedn_model_results["rougeLsum"],
     }
 
     # Save JSON
@@ -237,4 +234,5 @@ if __name__ == '__main__':
     fire.Fire({
         'init_seed': init_seed,
         'train': train,
+        'validate': validate,
     })
