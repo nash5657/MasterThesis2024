@@ -27,10 +27,11 @@ helper = get_helper(HELPER_MODULE)
 
 def load_model():
     model_name='google/flan-t5-base'
-    original_model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+    instruct_model = 'nash5657/flan-t5-instruct'
+    #original_model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     
     #ofcourse this is the instruct model
-    #original_model = AutoModelForSeq2SeqLM.from_pretrained("/Users/nash/Downloads/Models/Instruct_Model/flan-dialogue-summary-checkpoint", torch_dtype=torch.bfloat16)
+    original_model = AutoModelForSeq2SeqLM.from_pretrained(instruct_model, torch_dtype=torch.bfloat16)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return original_model, tokenizer
 
@@ -68,15 +69,15 @@ def save_parameters(model, out_path):
     helper.save(parameters_np, out_path)
 
 
-# def compile_model():
-#     peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
-#     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
-
-#     peft_model = PeftModel.from_pretrained(peft_model_base, 
-#                                         './peft-dialogue-summary-checkpoint-local', 
-#                                         torch_dtype=torch.bfloat16,
-#                                         is_trainable=False)
-#     return peft_model, tokenizer
+def compile_model():
+    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
+    instruct_model = 'nash5657/flan-t5-instruct'
+    peft_model = PeftModel.from_pretrained(peft_model_base, 
+                                        instruct_model , 
+                                        torch_dtype=torch.bfloat16,
+                                        is_trainable=False)
+    return peft_model, tokenizer
 
 def load_parameters(model_path):
     """ Load model parameters from file and populate model.
@@ -87,9 +88,9 @@ def load_parameters(model_path):
     :rtype: torch.nn.Module
     """
     parameters_np = helper.load(model_path)
-    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("nash5657/flan-t5-instruct", torch_dtype=torch.bfloat16)
     model = PeftModel.from_pretrained(peft_model_base, 
-                                        './peft-dialogue-summary-checkpoint-local', 
+                                        '/app/checkpoint/', 
                                          torch_dtype=torch.bfloat16,
                                        is_trainable=False)
     params_dict = zip(model.state_dict().keys(), parameters_np)
@@ -113,6 +114,8 @@ def train(in_model_path , out_model_path , data_path=None):
 
     # Train
     #output_dir = f'./dialogue-summary-training-{str(int(time.time()))}'
+    #assert if the folder /app/checkpoint is reachable
+    assert os.path.exists('/app/checkpoint')
 
     lora_config = LoraConfig(
     r=32, # Rank
