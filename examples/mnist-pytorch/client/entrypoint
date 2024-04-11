@@ -153,7 +153,7 @@ def train(in_model_path , out_model_path , data_path=None):
     # Metadata needed for aggregation server side
     metadata = {
         # num_examples are mandatory
-         'num_examples': 1,
+         'num_examples': len(train_sample),
          'batch_size': 10,
          'epochs': 1,
          'lr': 0.01
