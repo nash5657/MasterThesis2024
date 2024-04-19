@@ -162,6 +162,6 @@ class Helper(HelperBase):
         a = np.load(fh)
 
         weights = []
-        for i in range(len(a.files)):
-            weights.append(a[str(i)])
+        for key in (a.files):
+            weights.append(a[str(key)])
         return weights
