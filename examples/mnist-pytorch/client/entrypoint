@@ -18,6 +18,11 @@ import peft
 from peft import LoraConfig, get_peft_model, TaskType, PeftModel, PeftConfig
 
 import transformers
+from datasets import Dataset
+
+from transformers import T5Config
+from transformers import T5ForConditionalGeneration
+
 
 
 from fedn.utils.helpers.helpers import get_helper, save_metadata, save_metrics 
@@ -27,36 +32,16 @@ helper = get_helper(HELPER_MODULE)
 
 def load_model():
     model_name='google/flan-t5-base'
-    instruct_model = 'nash5657/flan-t5-instruct'
-    #original_model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-    
-    #ofcourse this is the instruct model
-    original_model = AutoModelForSeq2SeqLM.from_pretrained(instruct_model, torch_dtype=torch.bfloat16)
+    original_model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return original_model, tokenizer
 
-def tokenize_function(example):
-    #load the tokenizer
-    tokenizer = load_model()[1] 
 
-    start_prompt = 'Summarize the following conversation.\n\n'
-    end_prompt = '\n\nSummary: '
-    prompt = [start_prompt + dialogue + end_prompt for dialogue in example["dialogue"]]
-    example['input_ids'] = tokenizer(prompt, padding="max_length", truncation=True, return_tensors="pt").input_ids
-    example['labels'] = tokenizer(example["summary"], padding="max_length", truncation=True, return_tensors="pt").input_ids
+def load_data(data_path):
+    dataset = torch.load(data_path)
+    data = Dataset.from_dict(dataset)
+    return data
     
-    return example
-
-def load_data():
-    # Load the dataset
-    dataset = "knkarthick/dialogsum"
-
-    #Create the Dataset to create prompts.
-    data = load_dataset(dataset)
-    tokenized_datasets = data.map(tokenize_function, batched=True)
-    tokenized_datasets = tokenized_datasets.remove_columns(['id', 'topic', 'dialogue', 'summary',])
-    return tokenized_datasets["train"]
-
 def save_parameters(model, out_path):
     """ Save model paramters to file.
 
@@ -65,19 +50,25 @@ def save_parameters(model, out_path):
     :param out_path: The path to save to.
     :type out_path: str
     """
-    parameters_np = [val.float().cpu().numpy() for _, val in model.state_dict().items()]
-    helper.save(parameters_np, out_path)
+    # parameters_np = [val.float().cpu().numpy() for _, val in model.state_dict().items()]
+    # helper.save(parameters_np, out_path)
+    # Save configuration
+    #model.config.to_json_file(out_path + '.json')
+
+    # Save weights in NumPy format
+    weights_dict = {k: v.float().cpu().numpy() for k, v in model.state_dict().items()}
+    np.savez_compressed(out_path, **weights_dict)
 
 
-def compile_model():
-    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
-    instruct_model = 'nash5657/flan-t5-instruct'
-    peft_model = PeftModel.from_pretrained(peft_model_base, 
-                                        instruct_model , 
-                                        torch_dtype=torch.bfloat16,
-                                        is_trainable=False)
-    return peft_model, tokenizer
+# def compile_model():
+#     peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+#     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
+#     instruct_model = 'nash5657/flan-t5-instruct'
+#     peft_model = PeftModel.from_pretrained(peft_model_base, 
+#                                         instruct_model , 
+#                                         torch_dtype=torch.bfloat16,
+#                                         is_trainable=False)
+#     return peft_model, tokenizer
 
 def load_parameters(model_path):
     """ Load model parameters from file and populate model.
@@ -88,14 +79,23 @@ def load_parameters(model_path):
     :rtype: torch.nn.Module
     """
     parameters_np = helper.load(model_path)
-    peft_model_base = AutoModelForSeq2SeqLM.from_pretrained("nash5657/flan-t5-instruct", torch_dtype=torch.bfloat16)
-    model = PeftModel.from_pretrained(peft_model_base, 
-                                        '/app/checkpoint/', 
-                                         torch_dtype=torch.bfloat16,
-                                       is_trainable=False)
+    model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base", torch_dtype=torch.bfloat16)
+    # peft_model = PeftModel.from_pretrained(peft_model_base, 
+    #                                     './peft-dialogue-summary-checkpoint-local', 
+    #                                      torch_dtype=torch.bfloat16,
+    #                                    is_trainable=False)
     params_dict = zip(model.state_dict().keys(), parameters_np)
     state_dict = collections.OrderedDict({key: torch.tensor(x) for key, x in params_dict})
     model.load_state_dict(state_dict, strict=True)
+    # config = T5Config.from_pretrained("/Users/nash/Project/fedn/fedn/examples/mnist-pytorch/test/test.json")
+    # model = T5ForConditionalGeneration(config=config)
+    # a = np.load(model_path)
+    # weights = []
+    # for key in (a.files):
+    #     weights.append(a[str(key)])
+    # params_dict = zip(model.state_dict().keys(), weights)
+    # state_dict = collections.OrderedDict({key: torch.tensor(x) for key, x in params_dict})
+    # model.load_state_dict(state_dict, strict=True)
     return model
 
 
@@ -110,13 +110,8 @@ def init_seed(out_path='seed.npz'):
     save_parameters(model, out_path)
 
 
-def train(in_model_path , out_model_path , data_path=None):
-
-    # Train
-    #output_dir = f'./dialogue-summary-training-{str(int(time.time()))}'
-    #assert if the folder /app/checkpoint is reachable
-    assert os.path.exists('/app/checkpoint')
-
+def train(in_model_path , out_model_path , data_path):
+    
     lora_config = LoraConfig(
     r=32, # Rank
     lora_alpha=32,
@@ -139,7 +134,7 @@ def train(in_model_path , out_model_path , data_path=None):
         logging_steps=1,
         max_steps=1    
     )
-    train_sample = load_data()
+    train_sample = load_data(data_path)
 
     trainer = Trainer(
         model=peft_model,
@@ -149,7 +144,7 @@ def train(in_model_path , out_model_path , data_path=None):
     )
 
     trainer.train()
-
+    X = trainer.model.merge_and_unload()
     # Metadata needed for aggregation server side
     metadata = {
         # num_examples are mandatory
@@ -166,7 +161,7 @@ def train(in_model_path , out_model_path , data_path=None):
     # print("Training finished")
     # trainer.save_model(output_directory)
     # print("hugging face Model saved")
-    save_parameters(trainer.model, out_model_path)
+    save_parameters(X, out_model_path)
     #print("fedn Model saved")
 
 def validate(in_model_path  , out_json_path  , data_path=None):
@@ -181,56 +176,84 @@ def validate(in_model_path  , out_json_path  , data_path=None):
     """
     model_name='google/flan-t5-base'
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    #tokenizer = load_model()[1]
-    #original_model = load_model()[0]
-    fedn_model = load_parameters(in_model_path)
+    peft_model = load_parameters(in_model_path)
 
     # Load data
-    huggingface_dataset_name = "knkarthick/dialogsum"
-    dataset = load_dataset(huggingface_dataset_name)
-    dialogues = dataset['test'][0:10]['dialogue']
-    human_baseline_summaries = dataset['test'][0:10]['summary']
-    dialogues = dataset['test'][0:10]['dialogue']
-    human_baseline_summaries = dataset['test'][0:10]['summary']
+    #results = pd.read_csv("/app/data/rouge_dataset.csv")
+    #dataset = pd.read_csv("/Users/nash/Project/fedn/fedn/examples/mnist-pytorch/rouge_dataset.csv")
+    #huggingface_dataset_name = "knkarthick/dialogsum"
+    
+    dataset = pd.read_csv("/app/data/rouge_dataset.csv")
+    dialogues = dataset['dialogue'][0:10]
+    human_baseline_summaries = dataset['summary'][0:10]
 
-    #original_model_summaries = []
-    fedn_model_summaries = []
+    original_model_summaries = []
+    instruct_model_summaries = []
+    peft_model_summaries = []
 
     for idx, dialogue in enumerate(dialogues):
-        prompt = f""" Summarize the following conversation. {dialogue} Summary: """
+        prompt = f"""
+    Summarize the following conversation.
+
+    {dialogue}
+
+    Summary: """
         
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
 
-        # human_baseline_text_output = human_baseline_summaries[idx]
+        #human_baseline_text_output = human_baseline_summaries[idx]
         
         # original_model_outputs = original_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
         # original_model_text_output = tokenizer.decode(original_model_outputs[0], skip_special_tokens=True)
 
-        fedn_model_outputs = fedn_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
-        fedn_model_text_output = tokenizer.decode(fedn_model_outputs[0], skip_special_tokens=True)
+        # instruct_model_outputs = instruct_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
+        # instruct_model_text_output = tokenizer.decode(instruct_model_outputs[0], skip_special_tokens=True)
 
-        #original_model_summaries.append(original_model_text_output)
-        fedn_model_summaries.append(fedn_model_text_output)
+        peft_model_outputs = peft_model.generate(input_ids=input_ids, generation_config=GenerationConfig(max_new_tokens=200))
+        peft_model_text_output = tokenizer.decode(peft_model_outputs[0], skip_special_tokens=True)
 
-   
-   
+        # original_model_summaries.append(original_model_text_output)
+        # instruct_model_summaries.append(instruct_model_text_output)
+        peft_model_summaries.append(peft_model_text_output)
+
+    # zipped_summaries = list(zip(human_baseline_summaries, original_model_summaries, instruct_model_summaries, peft_model_summaries))
     
+    # df = pd.DataFrame(zipped_summaries, columns = ['human_baseline_summaries', 'original_model_summaries', 'instruct_model_summaries', 'peft_model_summaries'])
 
+        
     # Evaluate
     rouge = evaluate.load('rouge')
-    fedn_model_results = rouge.compute(
-        predictions=fedn_model_summaries,
-        references=human_baseline_summaries[0:len(fedn_model_summaries)],
+    # human_baseline_summaries = results['human_baseline_summaries'].values
+    # #original_model_summaries = results['original_model_summaries'].values
+    # #instruct_model_summaries = results['instruct_model_summaries'].values
+    # peft_model_summaries     = results['peft_model_summaries'].values
+
+    # original_model_results = rouge.compute(
+    #     predictions=original_model_summaries,
+    #     references=human_baseline_summaries[0:len(original_model_summaries)],
+    #     use_aggregator=True,
+    #     use_stemmer=True,
+    # )
+
+    # instruct_model_results = rouge.compute(
+    #     predictions=instruct_model_summaries,
+    #     references=human_baseline_summaries[0:len(instruct_model_summaries)],
+    #     use_aggregator=True,
+    #     use_stemmer=True,
+    # )
+
+    peft_model_results = rouge.compute(
+        predictions=peft_model_summaries,
+        references=human_baseline_summaries[0:len(peft_model_summaries)],
         use_aggregator=True,
         use_stemmer=True,
-    )
-
+)
     # JSON schema
     report = {
-        "rouge1": fedn_model_results["rouge1"],
-        "rouge2": fedn_model_results["rouge2"],
-        "rougeL": fedn_model_results["rougeL"],
-        "rougeLsum": fedn_model_results["rougeLsum"],
+        "rouge1": peft_model_results["rouge1"],
+        "rouge2": peft_model_results["rouge2"],
+        "rougeL": peft_model_results["rougeL"],
+        "rougeLsum": peft_model_results["rougeLsum"],
     }
 
     # Save JSON
