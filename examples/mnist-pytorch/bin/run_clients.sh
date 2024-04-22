@@ -28,5 +28,6 @@ do
     -v $PWD/rouge_dataset.csv:/app/data/rouge_dataset.csv \
     -e ENTRYPOINT_OPTS=--data_path=/var/data/dataset.pt \
     --network=fedn_default \
+    --name client$i \
     llm:latest run client -in client.yaml --name client$i &
 done
