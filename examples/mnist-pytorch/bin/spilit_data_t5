@@ -36,12 +36,13 @@ def tokenize_function(example):
     example['labels'] = tokenizer(example["summary"], padding="max_length", truncation=True, return_tensors="pt").input_ids
     
     return example
-def split(out_dir='data', n_splits=2):
+def split(out_dir='data', n_splits=1):
     # Load the dataset
     dataset = "knkarthick/dialogsum"
     # Create the Dataset to create prompts.
     data = load_dataset(dataset)
     tokenized_datasets = data.map(tokenize_function, batched=True)
+    tokenized_datasets = tokenized_datasets.filter(lambda example, index: index % 100 == 0, with_indices=True)
     tokenized_datasets = tokenized_datasets.remove_columns(['id', 'topic', 'dialogue', 'summary',])
     
 

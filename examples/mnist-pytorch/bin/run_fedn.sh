@@ -7,7 +7,7 @@ COMPOSE_FILE_PATH="/Users/nash/Project/fedn/fedn/docker-compose.yaml"
 cd $(dirname $COMPOSE_FILE_PATH)
 
 # Run Docker Compose up
-docker-compose -f $(basename $COMPOSE_FILE_PATH) up
+docker-compose -f $(basename $COMPOSE_FILE_PATH) up -d
 
 # Alternatively, you can run Docker Compose without changing the directory:
 # docker-compose -f $COMPOSE_FILE_PATH up

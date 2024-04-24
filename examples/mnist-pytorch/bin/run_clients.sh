@@ -31,3 +31,6 @@ do
     --name client$i \
     llm:latest run client -in client.yaml --name client$i &
 done
+
+wait # Wait for all background processes to finish
+echo "All clients started."
