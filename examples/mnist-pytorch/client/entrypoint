@@ -130,9 +130,9 @@ def train(in_model_path , out_model_path , data_path):
         output_dir=output_dir,
         auto_find_batch_size=True,
         learning_rate=1e-3, # Higher learning rate than full fine-tuning.
-        num_train_epochs=1,
-        logging_steps=1,
-        max_steps=1    
+        num_train_epochs=4,
+        #logging_steps=1,
+        #max_steps=1   
     )
     train_sample = load_data(data_path)
 

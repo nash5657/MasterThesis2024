@@ -36,7 +36,7 @@ def tokenize_function(example):
     example['labels'] = tokenizer(example["summary"], padding="max_length", truncation=True, return_tensors="pt").input_ids
     
     return example
-def split(out_dir='data', n_splits=1):
+def split(out_dir='data', n_splits=3):
     # Load the dataset
     dataset = "knkarthick/dialogsum"
     # Create the Dataset to create prompts.
