@@ -4,6 +4,7 @@
 
 #data
 fedn/fedn/data/
+fedn/fedn/examples/mnist-pytorch/test/
 
 #certificate files
 *.pem
@@ -188,4 +189,8 @@ config/settings-combiner.yaml
 .devcontainer/devcontainer.json
 
 # CI
-client.yaml
+examples/mnist-pytorch/test/clients/1/dataset.pt
+examples/mnist-pytorch/test/clients/2/dataset.pt
+examples/mnist-pytorch/test/clients/3/dataset.pt
+examples/mnist-pytorch/test/clients/5/dataset.pt
+examples/mnist-pytorch/test/clients/4/dataset.pt
